@@ -330,14 +330,14 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
 
     fn write_run_finish(&mut self, state: &ConsoleTestState) -> io::Result<bool> {
 
-        self.write_str(&*format!(r#"{{ "type": "suite",
-            "event": "{}",
-            "passed": {},
-            "failed": {},
-            "allowed_fail": {},
-            "ignored": {},
-            "measured": {},
-            "filtered_out": "{}" }}"#,
+        self.write_str(&*format!("{{ \"type\": \"suite\",\
+            \"event\": \"{}\", \
+            \"passed\": {}, \
+            \"failed\": {}, \
+            \"allowed_fail\": {}, \
+            \"ignored\": {}, \
+            \"measured\": {}, \
+            \"filtered_out\": \"{}\" }}",
             if state.failed == 0 { "ok" } else { "failed" },
             state.passed,
             state.failed + state.allowed_fail,
@@ -351,7 +351,7 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
                 let output = naive_json_escape(&*String::from_utf8_lossy(stdout));
 
                 self.write_str(
-                    &*format!(r#"{{ "type": "test_output", "name": "{}" "output": "{}" }}"#,
+                    &*format!(r#"{{ "type": "test_output", "name": "{}", "output": "{}" }}"#,
                             f.name,
                             output))?;
             }
