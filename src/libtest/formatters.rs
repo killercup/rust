@@ -246,126 +246,116 @@ impl<T: Write> OutputFormatter for HumanFormatter<T> {
 }
 
 pub(crate) struct JsonFormatter<T> {
-    out: OutputLocation<T>,
-    had_events: bool
+    out: OutputLocation<T>
 }
 
 impl<T: Write> JsonFormatter<T> {
     pub fn new(out: OutputLocation<T>) -> Self {
         Self {
-            out,
-            had_events: false
-        }
+            out,        }
     }
 
     fn write_str<S: AsRef<str>>(&mut self, s: S) -> io::Result<()> {
-        self.out.write_all(s.as_ref().as_ref())
-    }
-
-    fn write_event(&mut self, event: &str) -> io::Result<()> {
-        if self.had_events {
-            self.out.write_all(b",\n")?;
-        }
-        else {
-            self.had_events = true;
-        }
-
-        self.out.write_all(event.as_ref())
+        self.out.write_all(s.as_ref().as_ref())?;
+        self.out.write_all("\n".as_ref())
     }
 }
 
+fn naive_json_escape(input: &str) -> String {
+    input.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
 impl<T: Write> OutputFormatter for JsonFormatter<T> {
-    fn write_run_start(&mut self, _len: usize) -> io::Result<()> {
-        self.write_str("{\n\tevents: [\n")
+    fn write_run_start(&mut self, len: usize) -> io::Result<()> {
+        self.write_str(
+            &*format!(r#"{{ "type": "suite", "event": "started", "test_count": "{}" }}"#, len))
     }
 
     fn write_test_start(&mut self,
                         desc: &TestDesc,
                         _align: NamePadding,
                         _max_name_len: usize) -> io::Result<()> {
-        self.write_event(&*format!("\t\t{{ \"test\": \"{}\", \"event\": \"started\" }}", desc.name))
+        self.write_str(&*format!(r#"{{ "type": "test", "event": "started", "name": "{}" }}"#,
+                                desc.name))
     }
 
     fn write_result(&mut self, desc: &TestDesc, result: &TestResult) -> io::Result<()> {
         let output = match *result {
             TrOk => {
-                format!("\t\t{{ \"test\": \"{}\", \"event\": \"ok\" }}", desc.name)
+                format!(r#"{{ "type": "test", "event": "ok", "name": "{}" }}"#,
+                        desc.name)
             },
 
             TrFailed => {
-                format!("\t\t{{ \"test\": \"{}\", \"event\": \"failed\" }}", desc.name)
+                format!(r#"{{ "type": "test", "event": "failed", "name": "{}" }}"#,
+                        desc.name)
             },
 
             TrFailedMsg(ref m) => {
-                format!("\t\t{{ \"test\": \"{}\", \"event\": \"failed\", \"extra\": \"{}\" }}",
+                format!(r#"{{ "type": "test", "event": "failed", "name": "{}", "message": "{}" }}"#,
                         desc.name,
-                        m)
+                        naive_json_escape(m))
             },
 
             TrIgnored => {
-                format!("\t\t{{ \"test\": \"{}\", \"event\": \"ignored\" }}", desc.name)
+                format!(r#"{{ "type": "test", "event": "ignored", "name": "{}" }}"#,
+                        desc.name)
             },
 
             TrAllowedFail => {
-                format!("\t\t{{ \"test\": \"{}\", \"event\": \"allowed_failure\" }}", desc.name)
+                format!(r#"{{ "type": "test", "event": "allowed_failure", "name": "{}" }}"#,
+                        desc.name)
             },
 
             TrMetrics(ref mm) => {
-                format!("\t\t{{ \"test\": \"{}\", \"event\": \"metrics\", \"extra\": \"{}\" }}",
+                format!(r#"{{ "type": "metrics", "name": "{}", "metrics": "{}" }}"#,
                         desc.name,
                         mm.fmt_metrics())
             },
 
             TrBench(ref bs) => {
-                format!("\t\t{{ \"test\": \"{}\", \"event\": \"bench\", \"extra\": \"{}\" }}",
+                format!(r#"{{ "type": "bench", "name": "{}", "bench": "{}" }}"#,
                         desc.name,
                         fmt_bench_samples(bs))
             },
         };
 
-        self.write_event(&*output)
+        self.write_str(&*output)
     }
 
     fn write_timeout(&mut self, desc: &TestDesc) -> io::Result<()> {
-        self.write_event(&*format!("\t{{ \"test\": \"{}\", \"event\": \"timeout\" }}", desc.name))
+        self.write_str(&*format!(r#"{{ "type": "test", "event": "timeout", "name": "{}" }}"#,
+                        desc.name))
     }
 
     fn write_run_finish(&mut self, state: &ConsoleTestState) -> io::Result<bool> {
-        self.write_str("\n\t],\n\t\"summary\": {\n")?;
 
-        self.write_str(&*format!("\t\t\"passed\": {},\n", state.passed))?;
-        self.write_str(&*format!("\t\t\"failed\": {},\n", state.failed + state.allowed_fail))?;
-        self.write_str(&*format!("\t\t\"allowed_fail\": {},\n", state.allowed_fail))?;
-        self.write_str(&*format!("\t\t\"ignored\": {},\n", state.ignored))?;
-        self.write_str(&*format!("\t\t\"measured\": {},\n", state.measured))?;
+        self.write_str(&*format!(r#"{{ "type": "suite",
+            "event": "{}",
+            "passed": {},
+            "failed": {},
+            "allowed_fail": {},
+            "ignored": {},
+            "measured": {},
+            "filtered_out": "{}" }}"#,
+            if state.failed == 0 { "ok" } else { "failed" },
+            state.passed,
+            state.failed + state.allowed_fail,
+            state.allowed_fail,
+            state.ignored,
+            state.measured,
+            state.filtered_out))?;
 
-        if state.failed == 0 {
-            self.write_str(&*format!("\t\t\"filtered_out\": {}\n", state.filtered_out))?;
-        } else {
-            self.write_str(&*format!("\t\t\"filtered_out\": {},\n", state.filtered_out))?;
-            self.write_str("\t\t\"failures\": [\n")?;
+        for &(ref f, ref stdout) in &state.failures {
+            if !stdout.is_empty() {
+                let output = naive_json_escape(&*String::from_utf8_lossy(stdout));
 
-            let mut has_items = false;
-            for &(ref f, ref stdout) in &state.failures {
-                if !stdout.is_empty() {
-                    if has_items {
-                        self.write_str(",\n")?;
-                    } else {
-                        has_items = true;
-                    }
-
-                    let output = String::from_utf8_lossy(stdout)
-                                    .replace("\\", "\\\\")
-                                    .replace("\"", "\\\"");
-
-                    self.write_str(&*format!("\t\t\t\"{}\": \"{}\"", f.name, output))?;
-                }
+                self.write_str(
+                    &*format!(r#"{{ "type": "test_output", "name": "{}" "output": "{}" }}"#,
+                            f.name,
+                            output))?;
             }
-
-            self.write_str("\n\t\t]\n")?;
         }
-
-        self.write_str("\t}\n}\n")?;
 
         Ok(state.failed == 0)
     }
