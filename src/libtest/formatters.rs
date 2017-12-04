@@ -261,10 +261,6 @@ impl<T: Write> JsonFormatter<T> {
     }
 }
 
-fn naive_json_escape(input: &str) -> String {
-    input.replace("\\", "\\\\").replace("\"", "\\\"")
-}
-
 impl<T: Write> OutputFormatter for JsonFormatter<T> {
     fn write_run_start(&mut self, len: usize) -> io::Result<()> {
         self.write_str(
@@ -294,7 +290,7 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
             TrFailedMsg(ref m) => {
                 format!(r#"{{ "type": "test", "event": "failed", "name": "{}", "message": "{}" }}"#,
                         desc.name,
-                        naive_json_escape(m))
+                        EscapedString(m))
             },
 
             TrIgnored => {
@@ -307,16 +303,22 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
                         desc.name)
             },
 
-            TrMetrics(ref mm) => {
-                format!(r#"{{ "type": "metrics", "name": "{}", "metrics": "{}" }}"#,
-                        desc.name,
-                        mm.fmt_metrics())
-            },
-
             TrBench(ref bs) => {
-                format!(r#"{{ "type": "bench", "name": "{}", "bench": "{}" }}"#,
+                let median = bs.ns_iter_summ.median as usize;
+                let deviation = (bs.ns_iter_summ.max - bs.ns_iter_summ.min) as usize;
+
+                let mbps = if bs.mb_s == 0 {
+                    "".into()
+                }
+                else {
+                    format!(r#", "mib_per_second": {}"#, bs.mb_s)
+                };
+
+                format!(r#"{{ "type": "bench", "name": "{}", "median": {}, "deviation": {}{} }}"#,
                         desc.name,
-                        fmt_bench_samples(bs))
+                        median,
+                        deviation,
+                        mbps)
             },
         };
 
@@ -330,7 +332,7 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
 
     fn write_run_finish(&mut self, state: &ConsoleTestState) -> io::Result<bool> {
 
-        self.write_str(&*format!("{{ \"type\": \"suite\",\
+        self.write_str(&*format!("{{ \"type\": \"suite\", \
             \"event\": \"{}\", \
             \"passed\": {}, \
             \"failed\": {}, \
@@ -348,15 +350,78 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
 
         for &(ref f, ref stdout) in &state.failures {
             if !stdout.is_empty() {
-                let output = naive_json_escape(&*String::from_utf8_lossy(stdout));
-
                 self.write_str(
                     &*format!(r#"{{ "type": "test_output", "name": "{}", "output": "{}" }}"#,
                             f.name,
-                            output))?;
+                            EscapedString(&*String::from_utf8_lossy(stdout))))?;
             }
         }
 
         Ok(state.failed == 0)
+    }
+}
+
+/// A formatting utility used to print strings with characters in need of escaping.
+/// Base code taken form `libserialize::json::escape_str`
+struct EscapedString<'a>(&'a str);
+
+impl<'a> ::std::fmt::Display for EscapedString<'a> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        let mut start = 0;
+
+        for (i, byte) in self.0.bytes().enumerate() {
+            let escaped = match byte {
+                b'"' => "\\\"",
+                b'\\' => "\\\\",
+                b'\x00' => "\\u0000",
+                b'\x01' => "\\u0001",
+                b'\x02' => "\\u0002",
+                b'\x03' => "\\u0003",
+                b'\x04' => "\\u0004",
+                b'\x05' => "\\u0005",
+                b'\x06' => "\\u0006",
+                b'\x07' => "\\u0007",
+                b'\x08' => "\\b",
+                b'\t' => "\\t",
+                b'\n' => "\\n",
+                b'\x0b' => "\\u000b",
+                b'\x0c' => "\\f",
+                b'\r' => "\\r",
+                b'\x0e' => "\\u000e",
+                b'\x0f' => "\\u000f",
+                b'\x10' => "\\u0010",
+                b'\x11' => "\\u0011",
+                b'\x12' => "\\u0012",
+                b'\x13' => "\\u0013",
+                b'\x14' => "\\u0014",
+                b'\x15' => "\\u0015",
+                b'\x16' => "\\u0016",
+                b'\x17' => "\\u0017",
+                b'\x18' => "\\u0018",
+                b'\x19' => "\\u0019",
+                b'\x1a' => "\\u001a",
+                b'\x1b' => "\\u001b",
+                b'\x1c' => "\\u001c",
+                b'\x1d' => "\\u001d",
+                b'\x1e' => "\\u001e",
+                b'\x1f' => "\\u001f",
+                b'\x7f' => "\\u007f",
+                _ => { continue; }
+            };
+
+            if start < i {
+                f.write_str(&self.0[start..i])?;
+            }
+
+            f.write_str(escaped)?;
+
+            start = i + 1;
+        }
+
+        if start != self.0.len() {
+            f.write_str(&self.0[start..])?;
+        }
+
+        Ok(())
     }
 }

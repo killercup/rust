@@ -713,7 +713,7 @@ pub fn list_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> io::Res
         if ntest != 0 || nbench != 0 {
             out.write_plain("\n")?;
         }
-        st.write_plain(format!("{}, {}\n",
+        out.write_plain(format!("{}, {}\n",
             plural(ntest, "test"),
             plural(nbench, "benchmark")))?;
     }
