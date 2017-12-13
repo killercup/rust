@@ -450,8 +450,19 @@ Test Attributes:
              usage = options.usage(&message));
 }
 
+// FIXME: Copied from libsyntax until linkage errors are resolved.
+fn allow_unstable() -> bool {
+    // Whether this is a feature-staged build, i.e. on the beta or stable channel
+    let disable_unstable_features = option_env!("CFG_DISABLE_UNSTABLE_FEATURES").is_some();
+    // Whether we should enable unstable features for bootstrapping
+    let bootstrap = env::var("RUSTC_BOOTSTRAP").is_ok();
+
+    bootstrap || !disable_unstable_features
+}
+
 // Parses command line arguments into test options
 pub fn parse_opts(args: &[String]) -> Option<OptRes> {
+    let allow_unstable = allow_unstable();
     let opts = optgroups();
     let args = args.get(1..).unwrap_or(args);
     let matches = match opts.parse(args) {
@@ -519,7 +530,13 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
         None if quiet => OutputFormat::Terse,
         Some("pretty") | None => OutputFormat::Pretty,
         Some("terse") => OutputFormat::Terse,
-        Some("json") => OutputFormat::Json,
+        Some("json") => {
+            if !allow_unstable {
+                return Some(
+                    Err("The \"json\" format is only accepted on the nightly compiler".into()));
+            }
+            OutputFormat::Json
+        },
 
         Some(v) => {
             return Some(Err(format!("argument for --format must be pretty, terse, or json (was \
