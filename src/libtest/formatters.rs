@@ -12,12 +12,12 @@ use super::*;
 
 pub(crate) trait OutputFormatter {
     fn write_run_start(&mut self, len: usize) -> io::Result<()>;
-    fn write_test_start(&mut self,
-        test: &TestDesc,
-        align: NamePadding,
-        max_name_len: usize) -> io::Result<()>;
+    fn write_test_start(&mut self, test: &TestDesc) -> io::Result<()>;
     fn write_timeout(&mut self, desc: &TestDesc) -> io::Result<()>;
-    fn write_result(&mut self, desc: &TestDesc, result: &TestResult) -> io::Result<()>;
+    fn write_result(&mut self,
+                    desc: &TestDesc,
+                    result: &TestResult,
+                    stdout: &[u8]) -> io::Result<()>;
     fn write_run_finish(&mut self, state: &ConsoleTestState) -> io::Result<bool>;
 }
 
@@ -26,15 +26,17 @@ pub(crate) struct HumanFormatter<T> {
     terse: bool,
     use_color: bool,
     test_count: usize,
+    max_name_len: usize, // number of columns to fill when aligning names
 }
 
 impl<T: Write> HumanFormatter<T> {
-    pub fn new(out: OutputLocation<T>, use_color: bool, terse: bool) -> Self {
+    pub fn new(out: OutputLocation<T>, use_color: bool, terse: bool, max_name_len: usize) -> Self {
         HumanFormatter {
             out,
             terse,
             use_color,
             test_count: 0,
+            max_name_len,
         }
     }
 
@@ -170,20 +172,18 @@ impl<T: Write> OutputFormatter for HumanFormatter<T> {
         self.write_plain(&format!("\nrunning {} {}\n", len, noun))
     }
 
-    fn write_test_start(&mut self,
-                        test: &TestDesc,
-                        align: NamePadding,
-                        max_name_len: usize) -> io::Result<()> {
-        if self.terse && align != PadOnRight {
-            Ok(())
-        }
-        else {
-            let name = test.padded_name(max_name_len, align);
-            self.write_plain(&format!("test {} ... ", name))
-        }
+    fn write_test_start(&mut self, _desc: &TestDesc) -> io::Result<()> {
+        // Do not print header, as priting it at this point will result in
+        // an unreadable output when running tests concurrently.
+        Ok(())
     }
 
-    fn write_result(&mut self, _desc: &TestDesc, result: &TestResult) -> io::Result<()> {
+    fn write_result(&mut self, desc: &TestDesc, result: &TestResult, _: &[u8]) -> io::Result<()> {
+        if !(self.terse && desc.name.padding() != PadOnRight) {
+            let name = desc.padded_name(self.max_name_len, desc.name.padding());
+            self.write_plain(&format!("test {} ... ", name))?;
+        }
+
         match *result {
             TrOk => self.write_ok(),
             TrFailed | TrFailedMsg(_) => self.write_failed(),
@@ -259,6 +259,26 @@ impl<T: Write> JsonFormatter<T> {
         self.out.write_all(s.as_ref().as_ref())?;
         self.out.write_all("\n".as_ref())
     }
+
+    fn write_event(&mut self,
+                    ty: &str,
+                    name: &str,
+                    evt: &str,
+                    extra: Option<String>) -> io::Result<()> {
+        if let Some(extras) = extra {
+            self.write_str(&*format!(r#"{{ "type": "{}", "name": "{}", "event": "{}", {} }}"#,
+                                    ty,
+                                    name,
+                                    evt,
+                                    extras))
+        }
+        else {
+            self.write_str(&*format!(r#"{{ "type": "{}", "name": "{}", "event": "{}" }}"#,
+                                    ty,
+                                    name,
+                                    evt))
+        }
+    }
 }
 
 impl<T: Write> OutputFormatter for JsonFormatter<T> {
@@ -267,40 +287,45 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
             &*format!(r#"{{ "type": "suite", "event": "started", "test_count": "{}" }}"#, len))
     }
 
-    fn write_test_start(&mut self,
-                        desc: &TestDesc,
-                        _align: NamePadding,
-                        _max_name_len: usize) -> io::Result<()> {
+    fn write_test_start(&mut self, desc: &TestDesc) -> io::Result<()> {
         self.write_str(&*format!(r#"{{ "type": "test", "event": "started", "name": "{}" }}"#,
                                 desc.name))
     }
 
-    fn write_result(&mut self, desc: &TestDesc, result: &TestResult) -> io::Result<()> {
-        let output = match *result {
+    fn write_result(&mut self,
+                        desc: &TestDesc,
+                        result: &TestResult,
+                        stdout: &[u8]) -> io::Result<()> {
+        match *result {
             TrOk => {
-                format!(r#"{{ "type": "test", "event": "ok", "name": "{}" }}"#,
-                        desc.name)
+                self.write_event("test", desc.name.as_slice(), "ok", None)
             },
 
             TrFailed => {
-                format!(r#"{{ "type": "test", "event": "failed", "name": "{}" }}"#,
-                        desc.name)
+                let extra_data = if stdout.len() > 0 {
+                    Some(format!(r#""stdout": "{}""#,
+                        EscapedString(String::from_utf8_lossy(stdout))))
+                }
+                else {
+                    None
+                };
+
+                self.write_event("test", desc.name.as_slice(), "failed", extra_data)
             },
 
             TrFailedMsg(ref m) => {
-                format!(r#"{{ "type": "test", "event": "failed", "name": "{}", "message": "{}" }}"#,
-                        desc.name,
-                        EscapedString(m))
+                self.write_event("test",
+                                    desc.name.as_slice(),
+                                    "failed",
+                                    Some(format!(r#""message": "{}""#, EscapedString(m))))
             },
 
             TrIgnored => {
-                format!(r#"{{ "type": "test", "event": "ignored", "name": "{}" }}"#,
-                        desc.name)
+                self.write_event("test", desc.name.as_slice(), "ignored", None)
             },
 
             TrAllowedFail => {
-                format!(r#"{{ "type": "test", "event": "allowed_failure", "name": "{}" }}"#,
-                        desc.name)
+                self.write_event("test", desc.name.as_slice(), "allowed_failure", None)
             },
 
             TrBench(ref bs) => {
@@ -314,15 +339,18 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
                     format!(r#", "mib_per_second": {}"#, bs.mb_s)
                 };
 
-                format!(r#"{{ "type": "bench", "name": "{}", "median": {}, "deviation": {}{} }}"#,
+                let line = format!("{{ \"type\": \"bench\", \
+                                \"name\": \"{}\", \
+                                \"median\": {}, \
+                                \"deviation\": {}{} }}",
                         desc.name,
                         median,
                         deviation,
-                        mbps)
-            },
-        };
+                        mbps);
 
-        self.write_str(&*output)
+                self.write_str(&*line)
+            },
+        }
     }
 
     fn write_timeout(&mut self, desc: &TestDesc) -> io::Result<()> {
@@ -348,28 +376,19 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
             state.measured,
             state.filtered_out))?;
 
-        for &(ref f, ref stdout) in &state.failures {
-            if !stdout.is_empty() {
-                self.write_str(
-                    &*format!(r#"{{ "type": "test_output", "name": "{}", "output": "{}" }}"#,
-                            f.name,
-                            EscapedString(&*String::from_utf8_lossy(stdout))))?;
-            }
-        }
-
         Ok(state.failed == 0)
     }
 }
 
 /// A formatting utility used to print strings with characters in need of escaping.
 /// Base code taken form `libserialize::json::escape_str`
-struct EscapedString<'a>(&'a str);
+struct EscapedString<S: AsRef<str>>(S);
 
-impl<'a> ::std::fmt::Display for EscapedString<'a> {
+impl<S: AsRef<str>> ::std::fmt::Display for EscapedString<S> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         let mut start = 0;
 
-        for (i, byte) in self.0.bytes().enumerate() {
+        for (i, byte) in self.0.as_ref().bytes().enumerate() {
             let escaped = match byte {
                 b'"' => "\\\"",
                 b'\\' => "\\\\",
@@ -410,7 +429,7 @@ impl<'a> ::std::fmt::Display for EscapedString<'a> {
             };
 
             if start < i {
-                f.write_str(&self.0[start..i])?;
+                f.write_str(&self.0.as_ref()[start..i])?;
             }
 
             f.write_str(escaped)?;
@@ -418,8 +437,8 @@ impl<'a> ::std::fmt::Display for EscapedString<'a> {
             start = i + 1;
         }
 
-        if start != self.0.len() {
-            f.write_str(&self.0[start..])?;
+        if start != self.0.as_ref().len() {
+            f.write_str(&self.0.as_ref()[start..])?;
         }
 
         Ok(())
