@@ -414,7 +414,9 @@ fn optgroups() -> getopts::Options {
         .optopt("", "format", "Configure formatting of output:
             pretty = Print verbose output;
             terse  = Display one character per test;
-            json   = Output a json document", "pretty|terse|json");
+            json   = Output a json document", "pretty|terse|json")
+        .optopt("Z", "", "Enable nightly-only flags:
+            unstable-options = Allow use of experimental features", "unstable-options");
     return opts
 }
 
@@ -451,7 +453,7 @@ Test Attributes:
 }
 
 // FIXME: Copied from libsyntax until linkage errors are resolved.
-fn allow_unstable() -> bool {
+fn is_nightly() -> bool {
     // Whether this is a feature-staged build, i.e. on the beta or stable channel
     let disable_unstable_features = option_env!("CFG_DISABLE_UNSTABLE_FEATURES").is_some();
     // Whether we should enable unstable features for bootstrapping
@@ -462,12 +464,27 @@ fn allow_unstable() -> bool {
 
 // Parses command line arguments into test options
 pub fn parse_opts(args: &[String]) -> Option<OptRes> {
-    let allow_unstable = allow_unstable();
+    let mut allow_unstable = false;
     let opts = optgroups();
     let args = args.get(1..).unwrap_or(args);
     let matches = match opts.parse(args) {
         Ok(m) => m,
         Err(f) => return Some(Err(f.to_string())),
+    };
+
+    if let Some(opt) = matches.opt_str("Z") {
+        if !is_nightly() {
+            return Some(Err("the option `Z` is only accepted on the nightly compiler".into()));
+        }
+
+        match &*opt {
+            "unstable-options" => {
+                allow_unstable = true;
+            }
+            _ => {
+                return Some(Err("Unrecognized option to `Z`".into()));
+            }
+        }
     };
 
     if matches.opt_present("h") {
