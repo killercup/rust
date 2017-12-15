@@ -45,6 +45,8 @@ extern crate term;
 #[cfg(unix)]
 extern crate libc;
 extern crate panic_unwind;
+extern crate serde;
+#[macro_use] extern crate serde_json;
 
 pub use self::TestFn::*;
 pub use self::ColorConfig::*;
