@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2017 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -100,6 +100,7 @@ pub enum TestName {
     DynTestName(String),
     AlignedTestName(Cow<'static, str>, NamePadding),
 }
+
 impl TestName {
     fn as_str(&self) -> &str {
         match *self {
@@ -126,6 +127,7 @@ impl TestName {
         TestName::AlignedTestName(name, padding)
     }
 }
+
 impl fmt::Display for TestName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self.as_str(), f)
