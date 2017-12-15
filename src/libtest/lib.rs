@@ -964,7 +964,7 @@ fn should_sort_failures_before_printing_them() {
         allow_fail: false,
     };
 
-    let mut out = HumanFormatter::new(Raw(Vec::new()), false, false, 10);
+    let mut out = HumanFormatter::new(Raw(Vec::new()), false, false, 10, false);
 
     let st = ConsoleTestState {
         log_out: None,
