@@ -302,7 +302,7 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
     }
 
     fn write_test_start(&mut self, desc: &TestDesc) -> io::Result<()> {
-        self.write_message(&json!({ "type": "test", "event": "started", "name": desc.name.as_slice(), }))
+        self.write_message(&json!({ "type": "test", "event": "started", "name": desc.name.as_str(), }))
     }
 
     fn write_result(
@@ -314,29 +314,29 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
         match *result {
             TrOk => self.write_message(&json!({
                 "type": "test",
-                "name": desc.name.as_slice(),
+                "name": desc.name.as_str(),
                 "event": "ok",
             })),
             TrFailed => self.write_message(&json!({
                 "type": "test",
-                "name": desc.name.as_slice(),
+                "name": desc.name.as_str(),
                 "event": "failed",
                 "stdout": String::from_utf8_lossy(stdout),
             })),
             TrFailedMsg(ref m) => self.write_message(&json!({
                 "type": "test",
-                "name": desc.name.as_slice(),
+                "name": desc.name.as_str(),
                 "event": "failed",
                 "message": m,
             })),
             TrIgnored => self.write_message(&json!({
                 "type": "test",
-                "name": desc.name.as_slice(),
+                "name": desc.name.as_str(),
                 "event": "ignored",
             })),
             TrAllowedFail => self.write_message(&json!({
                 "type": "test",
-                "name": desc.name.as_slice(),
+                "name": desc.name.as_str(),
                 "event": "allowed_failure",
             })),
             TrBench(ref bs) => {
@@ -350,7 +350,7 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
                 };
                 self.write_message(&json!({
                     "type": "bench",
-                    "name": desc.name.as_slice(),
+                    "name": desc.name.as_str(),
                     "median": median,
                     "deviation": format!("{}{}", deviation, mbps),
                 }))
@@ -361,7 +361,7 @@ impl<T: Write> OutputFormatter for JsonFormatter<T> {
     fn write_timeout(&mut self, desc: &TestDesc) -> io::Result<()> {
         self.write_message(&json!({
             "type": "test",
-            "name": desc.name.as_slice(),
+            "name": desc.name.as_str(),
             "event": "timeout",
         }))
     }

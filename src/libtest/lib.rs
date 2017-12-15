@@ -101,7 +101,7 @@ pub enum TestName {
     AlignedTestName(Cow<'static, str>, NamePadding),
 }
 impl TestName {
-    fn as_slice(&self) -> &str {
+    fn as_str(&self) -> &str {
         match *self {
             StaticTestName(s) => s,
             DynTestName(ref s) => s,
@@ -128,7 +128,7 @@ impl TestName {
 }
 impl fmt::Display for TestName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(self.as_slice(), f)
+        fmt::Display::fmt(self.as_str(), f)
     }
 }
 
@@ -140,7 +140,7 @@ pub enum NamePadding {
 
 impl TestDesc {
     fn padded_name(&self, column_count: usize, align: NamePadding) -> String {
-        let mut name = String::from(self.name.as_slice());
+        let mut name = String::from(self.name.as_str());
         let fill = column_count.saturating_sub(name.len());
         let pad = repeat(" ").take(fill).collect::<String>();
         match align {
@@ -880,7 +880,7 @@ pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> io::Resu
                     TrAllowedFail => st.allowed_fail += 1,
                     TrBench(bs) => {
                         st.metrics.insert_metric(
-                            test.name.as_slice(),
+                            test.name.as_str(),
                             bs.ns_iter_summ.median,
                             bs.ns_iter_summ.max - bs.ns_iter_summ.min,
                         );
@@ -910,7 +910,7 @@ pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> io::Resu
     let max_name_len = tests
         .iter()
         .max_by_key(|t| len_if_padded(*t))
-        .map(|t| t.desc.name.as_slice().len())
+        .map(|t| t.desc.name.as_str().len())
         .unwrap_or(0);
 
     let is_multithreaded = match opts.test_threads {
@@ -939,7 +939,7 @@ pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> io::Resu
     fn len_if_padded(t: &TestDescAndFn) -> usize {
         match t.testfn.padding() {
             PadNone => 0,
-            PadOnRight => t.desc.name.as_slice().len(),
+            PadOnRight => t.desc.name.as_str().len(),
         }
     }
 
@@ -1301,9 +1301,9 @@ pub fn filter_tests(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> Vec<TestDescA
             filtered
                 .into_iter()
                 .filter(|test| if opts.filter_exact {
-                    test.desc.name.as_slice() == &filter[..]
+                    test.desc.name.as_str() == &filter[..]
                 } else {
-                    test.desc.name.as_slice().contains(&filter[..])
+                    test.desc.name.as_str().contains(&filter[..])
                 })
                 .collect()
         }
@@ -1314,9 +1314,9 @@ pub fn filter_tests(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> Vec<TestDescA
         .into_iter()
         .filter(|t| {
             !opts.skip.iter().any(|sf| if opts.filter_exact {
-                t.desc.name.as_slice() == &sf[..]
+                t.desc.name.as_str() == &sf[..]
             } else {
-                t.desc.name.as_slice().contains(&sf[..])
+                t.desc.name.as_str().contains(&sf[..])
             })
         })
         .collect();
@@ -1344,7 +1344,7 @@ pub fn filter_tests(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> Vec<TestDescA
 
     // Sort the tests alphabetically
     filtered.sort_by(|t1, t2| {
-        t1.desc.name.as_slice().cmp(t2.desc.name.as_slice())
+        t1.desc.name.as_str().cmp(t2.desc.name.as_str())
     });
 
     filtered
@@ -1449,7 +1449,7 @@ pub fn run_test(
         // level.
         let supports_threads = !cfg!(target_os = "emscripten") && !cfg!(target_arch = "wasm32");
         if supports_threads {
-            let cfg = thread::Builder::new().name(name.as_slice().to_owned());
+            let cfg = thread::Builder::new().name(name.as_str().to_owned());
             cfg.spawn(runtest).unwrap();
         } else {
             runtest();
